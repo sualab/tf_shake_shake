@@ -16,15 +16,6 @@ def read_CIFAR10_subset():
     # Download CIFAR-10 data and load data
     (x_train, y_train), (x_test, y_test) = load_data()
 
-    # Convert scalar label(0~9) to One-hot Encoding
-    """
-    y_train_one_hot = tf.squeeze(tf.one_hot(y_train, 10),axis=1)
-    y_test_one_hot = tf.squeeze(tf.one_hot(y_test, 10),axis=1)
-    """
-
-    # numpy one-hot coding
-    #print(y_test, " , ", y_test.shape)
-
     y_train_oh = np.zeros((len(y_train), 10), dtype=np.uint8)
     for i in range(len(y_train)):
         y_train_oh[i, y_train[i]] = 1

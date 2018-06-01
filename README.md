@@ -1,9 +1,9 @@
-# Asirra Dogs vs. Cats Classification with AlexNet
+# Shake-Shake implementation with tensorflow
 
-*Last update : 2017/12/29*
+*Last update : 2018/05/25*
 
 ## Contributor
-* Kilho Kim
+* Hoseong Lee
 
 ## Requirements
 Python 3.5

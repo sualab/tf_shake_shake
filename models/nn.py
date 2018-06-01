@@ -118,7 +118,7 @@ class ShakeNet(ConvNet):
 
         # conv1 - batch_norm1
         with tf.variable_scope('conv1'):
-            d['conv1'] = conv_layer(X_input, 3, 1, 16, padding='SAME',
+            d['conv1'] = conv_layer_no_bias(X_input, 3, 1, 16, padding='SAME',
                                     weights_stddev=0.01, biases_value=0.0)
             print('conv1.shape', d['conv1'].get_shape().as_list())
 
@@ -126,30 +126,32 @@ class ShakeNet(ConvNet):
             d['batch_norm1'] = batch_norm(d['conv1'], is_training = self.is_train)
             print('batch_norm1.shape', d['batch_norm1'].get_shape().as_list())
 
-        # shake layer 1
-        with tf.variable_scope('shake_l1'):
-           d['shake_l1'] = self.shake_layer(d['batch_norm1'], first_channel, num_blocks, 1, batch_size, d)
-           print('shake_l1.shape', d['shake_l1'].get_shape().as_list())
+        # shake stage 1
+        with tf.variable_scope('shake_s1'):
+           d['shake_s1'] = self.shake_stage(d['batch_norm1'], first_channel, num_blocks, 1, batch_size, d)
+           print('shake_s1.shape', d['shake_s1'].get_shape().as_list())
 
-        # shake layer 2
-        with tf.variable_scope('shake_l2'):
-           d['shake_l2'] = self.shake_layer(d['shake_l1'], first_channel * 2, num_blocks, 2, batch_size, d)
-           print('shake_l2.shape', d['shake_l2'].get_shape().as_list())
+        # shake stage 2
+        with tf.variable_scope('shake_s2'):
+           d['shake_s2'] = self.shake_stage(d['shake_s1'], first_channel * 2, num_blocks, 2, batch_size, d)
+           print('shake_s2.shape', d['shake_s2'].get_shape().as_list())
 
-        # shake layer 3 with relu
-        with tf.variable_scope('shake_l3'):
-           d['shake_l3'] = tf.nn.relu(self.shake_layer(d['shake_l2'], first_channel * 4, num_blocks, 2, batch_size, d))
-           print('shake_l3.shape', d['shake_l3'].get_shape().as_list())
+        # shake stage 3 with relu
+        with tf.variable_scope('shake_s3'):
+           d['shake_s3'] = tf.nn.relu(self.shake_stage(d['shake_s2'], first_channel * 4, num_blocks, 2, batch_size, d))
+           print('shake_s3.shape', d['shake_s3'].get_shape().as_list())
        
-        d['avg_pool_shake_l3'] = tf.nn.avg_pool(d['shake_l3'], [1, 1, 1, 1], [1, 8, 8, 1], "VALID")
-        print('avg_pool_shake_l3.shape', d['avg_pool_shake_l3'].get_shape().as_list())
+        d['avg_pool_shake_s3'] = tf.reduce_mean(d['shake_s3'], reduction_indices=[1, 2])
+        print('avg_pool_shake_s3.shape', d['avg_pool_shake_s3'].get_shape().as_list())
 
         # Flatten feature maps
-        f_dim = int(np.prod(d['avg_pool_shake_l3'].get_shape()[1:]))
-        f_emb = tf.reshape(d['avg_pool_shake_l3'], [-1, f_dim])
+        f_dim = int(np.prod(d['avg_pool_shake_s3'].get_shape()[1:]))
+        f_emb = tf.reshape(d['avg_pool_shake_s3'], [-1, f_dim])
+        print('f_emb.shape', f_emb.get_shape().as_list())
 
         with tf.variable_scope('fc1'):
            d['logits'] = fc_layer(f_emb, num_classes)
+           print('logits.shape', d['logits'].get_shape().as_list())
  
         # softmax
         d['pred'] = tf.nn.softmax(d['logits'])
@@ -173,33 +175,33 @@ class ShakeNet(ConvNet):
 
         return softmax_loss + weight_decay*l2_reg_loss
 
-    def shake_layer(self, x, output_filters, num_blocks, stride, batch_size, d):
+    def shake_stage(self, x, output_filters, num_blocks, stride, batch_size, d):
         """
-        Build sub layer with many shake blocks.
-        :param x: tf.Tensor, input of shake_layer, shape: (N, H, W, C).
-        :param output_filters: int, the number of output filters in shake_layer.
-        :param num_blocks: int, the number of shake_blocks in one shake_layer.
+        Build sub stage with many shake blocks.
+        :param x: tf.Tensor, input of shake_stage, shape: (N, H, W, C).
+        :param output_filters: int, the number of output filters in shake_stage.
+        :param num_blocks: int, the number of shake_blocks in one shake_stage.
         :param stride: int, the stride of the sliding window to be applied shake_block's branch. 
         :param batch_size: int, the batch size.
         :param d: dict, the dictionary for saving outputs of each layers.
         :return tf.Tensor.
         """
 
-        shake_layer_idx = int(math.log2(output_filters // 16))  #FIXME if you change 'first_channel' parameter
+        shake_stage_idx = int(math.log2(output_filters // 16))  #FIXME if you change 'first_channel' parameter
 
         for block_idx in range(num_blocks):
            stride_block = stride if (block_idx == 0) else 1
-           with tf.variable_scope('shake_l{}_b{}'.format(shake_layer_idx, block_idx)):
-              x = self.shake_block(x, shake_layer_idx, block_idx, output_filters, stride_block, batch_size)
-              d['shake_l{}_b{}'.format(shake_layer_idx, block_idx)] = x
+           with tf.variable_scope('shake_s{}_b{}'.format(shake_stage_idx, block_idx)):
+              x = self.shake_block(x, shake_stage_idx, block_idx, output_filters, stride_block, batch_size)
+              d['shake_s{}_b{}'.format(shake_stage_idx, block_idx)] = x
 
-        return d['shake_l{}_b{}'.format(shake_layer_idx, num_blocks-1)]
+        return d['shake_s{}_b{}'.format(shake_stage_idx, num_blocks-1)]
 
-    def shake_block(self, x, shake_layer_idx, block_idx, output_filters, stride, batch_size):
+    def shake_block(self, x, shake_stage_idx, block_idx, output_filters, stride, batch_size):
         """
         Build one shake-shake blocks with branch and skip connection.
         :param x: tf.Tensor, input of shake_block, shape: (N, H, W, C).
-        :param shake_layer_idx: int, the index of shake_layer.
+        :param shake_layer_idx: int, the index of shake_stage.
         :param block_idx: int, the index of shake_block.
         :param output_filters: int, the number of output filters in shake_block.
         :param stride: int, the stride of the sliding window to be applied shake_block's branch. 
@@ -210,11 +212,12 @@ class ShakeNet(ConvNet):
         num_branches = 2
 
         # Generate random numbers for scaling the branches.
+        
         rand_forward = [
           tf.random_uniform([batch_size, 1, 1, 1], minval=0, maxval=1, dtype=tf.float32) for _ in range(num_branches)
         ]
         rand_backward = [
-        tf.random_uniform([batch_size, 1, 1, 1], minval=0, maxval=1, dtype=tf.float32) for _ in range(num_branches)
+          tf.random_uniform([batch_size, 1, 1, 1], minval=0, maxval=1, dtype=tf.float32) for _ in range(num_branches)
         ]
 
         # Normalize so that all sum to 1.
@@ -226,7 +229,7 @@ class ShakeNet(ConvNet):
 
         branches = []
         for branch, (r_forward, r_backward) in enumerate(zipped_rand):
-            with tf.variable_scope('shake_l{}_b{}_branch_{}'.format(shake_layer_idx, block_idx, branch)):
+            with tf.variable_scope('shake_s{}_b{}_branch_{}'.format(shake_stage_idx, block_idx, branch)):
                 b = self.shake_branch(x, output_filters, stride, r_forward, r_backward, num_branches)
                 branches.append(b)
         res = self.shake_skip_connection(x, output_filters, stride)
@@ -248,13 +251,13 @@ class ShakeNet(ConvNet):
         # relu1 - conv1 - batch_norm1 with stride = stride
         with tf.variable_scope('branch_conv_bn1'):
            x = tf.nn.relu(x) 
-           x = conv_layer(x, 3, stride, output_filters)
+           x = conv_layer_no_bias(x, 3, stride, output_filters)
            x = batch_norm(x, is_training=self.is_train) 
 
         # relu2 - conv2 - batch_norm2 with stride = 1
         with tf.variable_scope('branch_conv_bn2'):
            x = tf.nn.relu(x)
-           x = conv_layer(x, 3, 1, output_filters) # stirde = 1
+           x = conv_layer_no_bias(x, 3, 1, output_filters) # stirde = 1
            x = batch_norm(x, is_training=self.is_train)
 
         x = tf.cond(self.is_train, lambda: x * random_backward + tf.stop_gradient(x * random_forward - x * random_backward) , lambda: x / num_branches)
@@ -278,15 +281,14 @@ class ShakeNet(ConvNet):
         # avg_pool1 - conv1 
         with tf.variable_scope('skip1'):
            path1 = tf.nn.avg_pool(x, [1, 1, 1, 1], [1, stride, stride, 1], "VALID")
-           path1 = conv_layer(path1, 1, 1, int(output_filters / 2))
+           path1 = conv_layer_no_bias(path1, 1, 1, int(output_filters / 2))
 
         # Skip connection path 2.
         # pixel shift2 - avg_pool2 - conv2 
         with tf.variable_scope('skip2'):
            path2 = tf.pad(x, [[0, 0], [0, 1], [0, 1], [0, 0]])[:, 1:, 1:, :]
            path2 = tf.nn.avg_pool(path2, [1, 1, 1, 1], [1, stride, stride, 1], "VALID")
-           path2 = conv_layer(path2, 1, 1, int(output_filters / 2))
-
+           path2 = conv_layer_no_bias(path2, 1, 1, int(output_filters / 2))
  
         # Concatenation path 1 and path 2 and apply batch_norm
         with tf.variable_scope('concat'):
@@ -325,7 +327,9 @@ class SmallNet(ConvNet):
             d['conv1'] = conv_layer(X_input, 3, 1, 16, padding='SAME',
                                     weights_stddev=0.01, biases_value=0.0)
             print('conv1.shape', d['conv1'].get_shape().as_list())
-        d['relu1'] = tf.nn.relu(d['conv1'])
+            d['bn1'] = batch_norm(d['conv1'], is_training=self.is_train)
+        d['relu1'] = tf.nn.relu(d['bn1'])
+        #d['relu1'] = tf.nn.relu(d['conv1'])
         # (32, 32, 3) --> (32, 32, 16)
         d['pool1'] = max_pool(d['relu1'], 2, 2, padding='VALID')
         # (32, 32, 16) --> (16, 16, 16)
@@ -336,7 +340,9 @@ class SmallNet(ConvNet):
             d['conv2'] = conv_layer(d['pool1'], 3, 1, 32, padding='SAME',
                                     weights_stddev=0.01, biases_value=0.1)
             print('conv2.shape', d['conv2'].get_shape().as_list())
-        d['relu2'] = tf.nn.relu(d['conv2'])
+            d['bn2'] = batch_norm(d['conv2'], is_training=self.is_train)
+        d['relu2'] = tf.nn.relu(d['bn2'])
+        #d['relu2'] = tf.nn.relu(d['conv2'])
         # (16, 16, 16) --> (16, 16, 32)
         d['pool2'] = max_pool(d['relu2'], 2, 2, padding='VALID')
         # (16, 16, 32) --> (8, 8, 32)
@@ -347,7 +353,9 @@ class SmallNet(ConvNet):
             d['conv3'] = conv_layer(d['pool2'], 3, 1, 64, padding='SAME',
                                     weights_stddev=0.01, biases_value=0.0)
             print('conv3.shape', d['conv3'].get_shape().as_list())
-        d['relu3'] = tf.nn.relu(d['conv3'])
+            d['bn3'] = batch_norm(d['conv3'], is_training=self.is_train)
+        d['relu3'] = tf.nn.relu(d['bn3'])
+        #d['relu3'] = tf.nn.relu(d['conv3'])
         # (8, 8, 32) --> (8, 8, 64)
         d['pool3'] = max_pool(d['relu3'], 2, 2, padding='VALID')
         # (8, 8, 64) --> (4, 4, 64)

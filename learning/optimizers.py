@@ -3,7 +3,7 @@ import time
 from abc import abstractmethod
 import tensorflow as tf
 from learning.utils import plot_learning_curve
-
+import math
 
 class Optimizer(object):
     """Base class for gradient-based optimization algorithms."""
@@ -75,16 +75,19 @@ class Optimizer(object):
         X, y_true = self.train_set.next_batch(self.batch_size, shuffle=True,
                                               augment=augment_train, is_train=True)
 
+        # update extra ops for batch_normalization
+        extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
         # Compute the loss and make update
-        _, loss, y_pred = \
-            sess.run([self.optimize, self.model.loss, self.model.pred],
+        _, _, loss, y_pred = \
+            sess.run([self.optimize, extra_update_ops, self.model.loss, self.model.pred],
                      feed_dict={self.model.X: X, self.model.y: y_true,
                                 self.model.is_train: True,
                                 self.learning_rate_placeholder: self.curr_learning_rate})
 
         return loss, y_true, y_pred
 
-    def train(self, sess, save_dir='/tmp', details=False, verbose=True, **kwargs):
+    def train(self, sess, save_dir='./tmp', details=False, verbose=True, **kwargs):
         """
         Run optimizer to train the model.
         :param sess: tf.Session.
@@ -153,11 +156,13 @@ class Optimizer(object):
                 if self.evaluator.is_better(curr_score, self.best_score, **kwargs):
                     self.best_score = curr_score
                     self.num_bad_epochs = 0
-                    saver.save(sess, os.path.join(save_dir, 'model.ckpt'))    # save current weights
+                    saver.save(sess, os.path.join(save_dir, 'model_lr_2_bn_momentum_eps.ckpt'))    # save current weights
                 else:
                     self.num_bad_epochs += 1
 
-                self._update_learning_rate(**kwargs)
+                #self._update_learning_rate(**kwargs)
+                self._update_learning_rate_cosine(i, num_steps)
+
                 self.curr_epoch += 1
 
         if verbose:
@@ -189,12 +194,12 @@ class MomentumOptimizer(Optimizer):
         momentum = kwargs.pop('momentum', 0.9)
 
         update_vars = tf.trainable_variables()
-        return tf.train.MomentumOptimizer(self.learning_rate_placeholder, momentum, use_nesterov=False)\
+        return tf.train.MomentumOptimizer(self.learning_rate_placeholder, momentum, use_nesterov=True)\
                 .minimize(self.model.loss, var_list=update_vars)
 
     def _update_learning_rate(self, **kwargs):
         """
-        Update current learning rate, when evaluation score plateaus.
+        update current learning rate, when evaluation score plateaus.
         :param kwargs: dict, extra arguments for learning rate scheduling.
             - learning_rate_patience: int, number of epochs with no improvement
                                       after which learning rate will be reduced.
@@ -208,7 +213,24 @@ class MomentumOptimizer(Optimizer):
 
         if self.num_bad_epochs > learning_rate_patience:
             new_learning_rate = self.curr_learning_rate * learning_rate_decay
-            # Decay learning rate only when the difference is higher than epsilon.
+            # decay learning rate only when the difference is higher than epsilon.
             if self.curr_learning_rate - new_learning_rate > eps:
                 self.curr_learning_rate = new_learning_rate
             self.num_bad_epochs = 0
+
+    def _update_learning_rate_cosine(self, global_step, num_iterations):
+        """
+        update current learning rate, using Cosine function without restart(Loshchilov & Hutter, 2016).
+        """
+        global_step = min(global_step, num_iterations)
+        decay_step = num_iterations
+        alpha = 0
+        cosine_decay = 0.5 * (1 + math.cos(math.pi * global_step / decay_step))
+        decayed = (1 - alpha) * cosine_decay + alpha
+        new_learning_rate = self.init_learning_rate * decayed
+
+        self.curr_learning_rate = new_learning_rate
+
+
+
+

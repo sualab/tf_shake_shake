@@ -1,5 +1,12 @@
 import os
 import numpy as np
+import random
+import matplotlib
+
+if os.environ.get('DISPLAY','') == '':
+    print('no display found. Using non-interactive Agg backend')
+    matplotlib.use('Agg')
+
 from skimage.io import imread
 from skimage.transform import resize
 from tensorflow.python.keras._impl.keras.datasets.cifar10 import load_data
@@ -26,6 +33,20 @@ def read_CIFAR10_subset():
         y_test_oh[i, y_test[i]] = 1
     y_test_one_hot = y_test_oh
 
+    x_train = x_train/255.0
+    x_test = x_test/255.0
+
+    cifar_mean = np.array([0.4914, 0.4822, 0.4465])
+    cifar_std = np.array([0.2470, 0.2435, 0.2616])
+
+    for i in range(len(x_train)):
+        x_train[i] -= cifar_mean
+        x_train[i] /= cifar_std
+
+    for j in range(len(x_test)):
+        x_test[j] -= cifar_mean
+        x_test[j] /= cifar_std
+
     print('x_train shape : ', x_train.shape, end='\n')
     print('x_test shape : ', x_test.shape, end='\n')
     print('y_train_one_hot shape : ', y_train_one_hot.shape, end='\n')
@@ -34,38 +55,32 @@ def read_CIFAR10_subset():
 
     return x_train, x_test, y_train_one_hot, y_test_one_hot
 
-def random_reflect_rotate(images):
+def cifar_augment(images):
     """
-    Perform reflection and random rotation from images.
+    Perform data augmentation from cifar images.
     :param images: np.ndarray, shape: (N, C, H, W).
     :return: np.ndarray, shape: (N, C, H, W).
     """
     augmented_images = []
     for image in images:    # image.shape: (C, H, W)
-	# reflect image
+	# horizontal flip with 0.5 probability
         reflection = bool(np.random.randint(2))
         if reflection:
-             image = image[:, :, ::-1]
+             image = np.fliplr(image)
 
-       	# Randomly rotate image
-        rotation = np.random.randint(4)
-        image = np.rot90(image, rotation)
+        # random cropping with padding
+        image_pad = np.pad(image, ((4,4), (4,4), (0,0)), mode='constant')
 
-        augmented_images.append(image)
+        crop_x1 = random.randint(0, 8)
+        crop_x2 = crop_x1 + 32
+        crop_y1 = random.randint(0, 8)
+        crop_y2 = crop_y1 + 32
+
+        image_crop = image_pad[crop_x1:crop_x2, crop_y1:crop_y2]
+
+        augmented_images.append(image_crop)
 
     return np.stack(augmented_images)    # shape: (N, C, H, W)
-
-def reflect(images):
-    """
-    Perform reflection from images, resulting in 2x augmented images.
-    :param images: np.ndarray, shape: (N, C, H, W).
-    :return: np.ndarray, shape: (N, 2, C, H, W).
-    """
-    augmented_images = []
-    for image in images:    # image.shape: (C, H, W)
-        aug_image = np.stack([image, image[:, :, ::-1]])    # (2, C, H, W)
-        augmented_images.append(aug_image)
-    return np.stack(augmented_images)    # shape: (N, 2, C, H, W)
 
 class DataSet(object):
     def __init__(self, images, labels=None):
@@ -113,11 +128,6 @@ class DataSet(object):
         :return: batch_images: np.ndarray, shape: (N, h, w, C) or (N, 10, h, w, C).
                  batch_labels: np.ndarray, shape: (N, num_classes) or (N,).
         """
-        if fake_data:
-            fake_batch_images = np.random.random(size=(batch_size, 32, 32, 3))
-            fake_batch_labels = np.zeros((batch_size, 10), dtype=np.uint8)
-            fake_batch_labels[np.arange(batch_size), np.random.randint(10, size=batch_size)] = 1
-            return fake_batch_images, fake_batch_labels
 
         start_index = self._index_in_epoch
 
@@ -164,7 +174,7 @@ class DataSet(object):
 
         if augment and is_train:
             # Perform data augmentation, for training phase
-            batch_images = random_reflect_rotate(batch_images)
+            batch_images = cifar_augment(batch_images)
         else:
             # Don't perform data augmentation
             batch_images = batch_images

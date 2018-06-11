@@ -26,9 +26,9 @@ class Optimizer(object):
         self.val_set = val_set
 
         # Training hyperparameters
-        self.batch_size = kwargs.pop('batch_size', 256)
-        self.num_epochs = kwargs.pop('num_epochs', 320)
-        self.init_learning_rate = kwargs.pop('init_learning_rate', 0.01)
+        self.batch_size = kwargs.pop('batch_size', 128)
+        self.num_epochs = kwargs.pop('num_epochs', 1800)
+        self.init_learning_rate = kwargs.pop('init_learning_rate', 0.2)
 
         self.learning_rate_placeholder = tf.placeholder(tf.float32)    # Placeholder for current learning rate
         self.optimize = self._optimize_op()
@@ -79,11 +79,8 @@ class Optimizer(object):
         extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
         # Compute the loss and make update
-        _, _, loss, y_pred = \
-            sess.run([self.optimize, extra_update_ops, self.model.loss, self.model.pred],
-                     feed_dict={self.model.X: X, self.model.y: y_true,
-                                self.model.is_train: True,
-                                self.learning_rate_placeholder: self.curr_learning_rate})
+        with tf.control_dependencies(extra_update_ops):
+           _, loss, y_pred = sess.run([self.optimize, self.model.loss, self.model.pred], feed_dict={self.model.X: X, self.model.y: y_true, self.model.is_train: True, self.learning_rate_placeholder: self.curr_learning_rate})
 
         return loss, y_true, y_pred
 
@@ -136,8 +133,8 @@ class Optimizer(object):
                         print('[epoch {}]\tloss: {:.6f} |Train score: {:.6f} |Eval score: {:.6f} |lr: {:.6f}'\
                               .format(self.curr_epoch, step_loss, step_score, eval_score, self.curr_learning_rate))
                         # Plot intermediate results
-                        #plot_learning_curve(-1, step_losses, step_scores, eval_scores=eval_scores,
-                        #                    mode=self.evaluator.mode, img_dir=save_dir)
+                        plot_learning_curve(-1, step_losses, step_scores, eval_scores=eval_scores,
+                                            mode=self.evaluator.mode, img_dir=save_dir)
                     curr_score = eval_score
 
                 # else, just use results from current minibatch for evaluation
@@ -156,7 +153,7 @@ class Optimizer(object):
                 if self.evaluator.is_better(curr_score, self.best_score, **kwargs):
                     self.best_score = curr_score
                     self.num_bad_epochs = 0
-                    saver.save(sess, os.path.join(save_dir, 'model_lr_2_bn_momentum_eps.ckpt'))    # save current weights
+                    saver.save(sess, os.path.join(save_dir, 'model.ckpt')) # save current weights
                 else:
                     self.num_bad_epochs += 1
 
@@ -193,8 +190,14 @@ class MomentumOptimizer(Optimizer):
         """
         momentum = kwargs.pop('momentum', 0.9)
 
-        update_vars = tf.trainable_variables()
-        return tf.train.MomentumOptimizer(self.learning_rate_placeholder, momentum, use_nesterov=True)\
+        
+        # update extra ops for batch_normalization
+        extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
+        # Compute the loss and make update
+        with tf.control_dependencies(extra_update_ops):
+           update_vars = tf.trainable_variables()
+           return tf.train.MomentumOptimizer(self.learning_rate_placeholder, momentum, use_nesterov=True)\
                 .minimize(self.model.loss, var_list=update_vars)
 
     def _update_learning_rate(self, **kwargs):
@@ -230,7 +233,4 @@ class MomentumOptimizer(Optimizer):
         new_learning_rate = self.init_learning_rate * decayed
 
         self.curr_learning_rate = new_learning_rate
-
-
-
 

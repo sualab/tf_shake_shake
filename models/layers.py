@@ -1,6 +1,5 @@
 import tensorflow as tf
 
-
 def weight_variable(shape):
     """
     Initialize a weight variable with given shape,
@@ -11,7 +10,6 @@ def weight_variable(shape):
     weights = tf.get_variable('weights', shape, tf.float32, tf.contrib.layers.xavier_initializer())
 
     return weights
-
 
 def bias_variable(shape, value=1.0):
     """
@@ -25,7 +23,6 @@ def bias_variable(shape, value=1.0):
                              tf.constant_initializer(value=value))
     return biases
 
-
 def conv2d(x, W, stride, padding='SAME'):
     """
     Compute a 2D convolution from given input and filter weights.
@@ -37,7 +34,6 @@ def conv2d(x, W, stride, padding='SAME'):
     :return: tf.Tensor.
     """
     return tf.nn.conv2d(x, W, strides=[1, stride, stride, 1], padding=padding)
-
 
 def max_pool(x, side_l, stride, padding='SAME'):
     """
@@ -51,7 +47,6 @@ def max_pool(x, side_l, stride, padding='SAME'):
     """
     return tf.nn.max_pool(x, ksize=[1, side_l, side_l, 1],
                           strides=[1, stride, stride, 1], padding=padding)
-
 
 def conv_layer_no_bias(x, side_l, stride, out_depth, padding='SAME'):
     """
@@ -96,4 +91,3 @@ def batch_norm(x, is_training, momentum=0.9, epsilon=0.00001):
     """
     x = tf.layers.batch_normalization(x, momentum=momentum, epsilon=epsilon, training=is_training)
     return x
-    

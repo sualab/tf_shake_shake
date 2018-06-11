@@ -1,6 +1,6 @@
 # Shake-Shake implementation with tensorflow
 
-*Last update : 2018/05/25*
+*Last update : 2018/06/11*
 
 ## Contributor
 * Hoseong Lee

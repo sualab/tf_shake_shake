@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 from datasets import cifar10 as dataset
 from models.nn import ShakeNet as ConvNet
-#from models.nn import SmallNet as ConvNet
 from learning.optimizers import MomentumOptimizer as Optimizer
 from learning.evaluators import AccuracyEvaluator as Evaluator
 
@@ -23,22 +22,15 @@ print(val_set.images.shape)
 
 """ 2. Set training hyperparameters """
 hp_d = dict()
-image_mean = train_set.images.mean(axis=(0, 1, 2))    # mean image
-np.save('./CIFAR10_mean.npy', image_mean)    # save mean image
-hp_d['image_mean'] = image_mean
 
 # FIXME: Training hyperparameters
 hp_d['batch_size'] = 128
 hp_d['num_epochs'] = 1800
 
 hp_d['augment_train'] = True
-#hp_d['augment_pred'] = False
 
 hp_d['init_learning_rate'] = 0.2
 hp_d['momentum'] = 0.9
-hp_d['learning_rate_patience'] = 20
-hp_d['learning_rate_decay'] = 0.1
-hp_d['eps'] = 1e-8
 
 # FIXME: Regularization hyperparameters
 hp_d['weight_decay'] = 0.0001

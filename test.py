@@ -17,7 +17,6 @@ print(test_set.images.shape)
 
 """ 2. Set test hyperparameters """
 hp_d = dict()
-hp_d['image_mean'] = 0
 
 # FIXME: Test hyperparameters
 hp_d['batch_size'] = 128

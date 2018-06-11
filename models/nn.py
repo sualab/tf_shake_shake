@@ -51,7 +51,7 @@ class ConvNet(object):
             - batch_size: int, batch size for each iteration.
         :return _y_pred: np.ndarray, shape: (N, num_classes).
         """
-        batch_size = kwargs.pop('batch_size', 256)
+        batch_size = kwargs.pop('batch_size', 128)
 
         if dataset.labels is not None:
             assert len(dataset.labels.shape) > 1, 'Labels must be one-hot encoded.'
@@ -92,20 +92,12 @@ class ShakeNet(ConvNet):
         """
         Build model.
         :param kwargs: dict, extra arguments for building ShakeNet.
-            - image_mean: np.ndarray, mean image for each input channel, shape: (C,).
-            - dropout_prob: float, the probability of dropping out each unit in FC layer.
+            - batch_size: int, the batch size.
         :return d: dict, containing outputs on each layer.
         """
         d = dict()    # Dictionary to save intermediate values returned from each layer.
-        X_mean = kwargs.pop('image_mean', 0.0)
-        dropout_prob = kwargs.pop('dropout_prob', 0.0)
-        batch_size = kwargs.pop('batch_size', 256)
+        batch_size = kwargs.pop('batch_size', 128)
         num_classes = int(self.y.get_shape()[-1])
-
-        # The probability of keeping each unit for dropout layers
-        keep_prob = tf.cond(self.is_train,
-                            lambda: 1. - dropout_prob,
-                            lambda: 1.)
 
         # input
         X_input = self.X
@@ -118,8 +110,7 @@ class ShakeNet(ConvNet):
 
         # conv1 - batch_norm1
         with tf.variable_scope('conv1'):
-            d['conv1'] = conv_layer_no_bias(X_input, 3, 1, 16, padding='SAME',
-                                    weights_stddev=0.01, biases_value=0.0)
+            d['conv1'] = conv_layer_no_bias(X_input, 3, 1, 16, padding='SAME')
             print('conv1.shape', d['conv1'].get_shape().as_list())
 
         with tf.variable_scope('batch_norm1'):
@@ -165,7 +156,7 @@ class ShakeNet(ConvNet):
             - weight_decay: float, L2 weight decay regularization coefficient.
         :return tf.Tensor.
         """
-        weight_decay = kwargs.pop('weight_decay', 0.0005)
+        weight_decay = kwargs.pop('weight_decay', 0.0001)
         variables = tf.trainable_variables()
         l2_reg_loss = tf.add_n([tf.nn.l2_loss(var) for var in variables])
 
@@ -277,6 +268,8 @@ class ShakeNet(ConvNet):
         if input_filters == output_filters:
            return x
 
+        x = tf.nn.relu(x)
+
         # Skip connection path 1.
         # avg_pool1 - conv1 
         with tf.variable_scope('skip1'):
@@ -298,107 +291,3 @@ class ShakeNet(ConvNet):
         return bn_path
 
 
-class SmallNet(ConvNet):
-    """SmallNet class."""
-
-    def _build_model(self, **kwargs):
-        """
-        Build model.
-        :param kwargs: dict, extra arguments for building AlexNet.
-            - image_mean: np.ndarray, mean image for each input channel, shape: (C,).
-            - dropout_prob: float, the probability of dropping out each unit in FC layer.
-        :return d: dict, containing outputs on each layer.
-        """
-        d = dict()    # Dictionary to save intermediate values returned from each layer.
-        X_mean = kwargs.pop('image_mean', 0.0)
-        dropout_prob = kwargs.pop('dropout_prob', 0.0)
-        num_classes = int(self.y.get_shape()[-1])
-
-        # The probability of keeping each unit for dropout layers
-        keep_prob = tf.cond(self.is_train,
-                            lambda: 1. - dropout_prob,
-                            lambda: 1.)
-
-        # input
-        X_input = self.X - X_mean    # perform mean subtraction
-
-        # conv1 - relu1 - pool1
-        with tf.variable_scope('conv1'):
-            d['conv1'] = conv_layer(X_input, 3, 1, 16, padding='SAME',
-                                    weights_stddev=0.01, biases_value=0.0)
-            print('conv1.shape', d['conv1'].get_shape().as_list())
-            d['bn1'] = batch_norm(d['conv1'], is_training=self.is_train)
-        d['relu1'] = tf.nn.relu(d['bn1'])
-        #d['relu1'] = tf.nn.relu(d['conv1'])
-        # (32, 32, 3) --> (32, 32, 16)
-        d['pool1'] = max_pool(d['relu1'], 2, 2, padding='VALID')
-        # (32, 32, 16) --> (16, 16, 16)
-        print('pool1.shape', d['pool1'].get_shape().as_list())
-
-        # conv2 - relu2 - pool2
-        with tf.variable_scope('conv2'):
-            d['conv2'] = conv_layer(d['pool1'], 3, 1, 32, padding='SAME',
-                                    weights_stddev=0.01, biases_value=0.1)
-            print('conv2.shape', d['conv2'].get_shape().as_list())
-            d['bn2'] = batch_norm(d['conv2'], is_training=self.is_train)
-        d['relu2'] = tf.nn.relu(d['bn2'])
-        #d['relu2'] = tf.nn.relu(d['conv2'])
-        # (16, 16, 16) --> (16, 16, 32)
-        d['pool2'] = max_pool(d['relu2'], 2, 2, padding='VALID')
-        # (16, 16, 32) --> (8, 8, 32)
-        print('pool2.shape', d['pool2'].get_shape().as_list())
-
-        # conv3 - relu3 - pool3
-        with tf.variable_scope('conv3'):
-            d['conv3'] = conv_layer(d['pool2'], 3, 1, 64, padding='SAME',
-                                    weights_stddev=0.01, biases_value=0.0)
-            print('conv3.shape', d['conv3'].get_shape().as_list())
-            d['bn3'] = batch_norm(d['conv3'], is_training=self.is_train)
-        d['relu3'] = tf.nn.relu(d['bn3'])
-        #d['relu3'] = tf.nn.relu(d['conv3'])
-        # (8, 8, 32) --> (8, 8, 64)
-        d['pool3'] = max_pool(d['relu3'], 2, 2, padding='VALID')
-        # (8, 8, 64) --> (4, 4, 64)
-        print('pool3.shape', d['pool3'].get_shape().as_list())
-
-        # Flatten feature maps
-        f_dim = int(np.prod(d['pool3'].get_shape()[1:]))
-        f_emb = tf.reshape(d['pool3'], [-1, f_dim])
-        # (8, 8, 64) --> (4096)
-
-        # fc4
-        with tf.variable_scope('fc4'):
-            d['fc4'] = fc_layer(f_emb, 1024,
-                                weights_stddev=0.005, biases_value=0.1)
-        d['relu4'] = tf.nn.relu(d['fc4'])
-        d['drop4'] = tf.nn.dropout(d['relu4'], keep_prob)
-        # (4096) --> (1024)
-        print('drop4.shape', d['drop4'].get_shape().as_list())
-
-        # fc5
-        with tf.variable_scope('fc5'):
-            d['logits'] = fc_layer(d['drop4'], num_classes,
-                                weights_stddev=0.01, biases_value=0.0)
-        # (1024) --> (num_classes)
-
-        # softmax
-        d['pred'] = tf.nn.softmax(d['logits'])
-
-        return d
-
-    def _build_loss(self, **kwargs):
-        """
-        Build loss function for the model training.
-        :param kwargs: dict, extra arguments for regularization term.
-            - weight_decay: float, L2 weight decay regularization coefficient.
-        :return tf.Tensor.
-        """
-        weight_decay = kwargs.pop('weight_decay', 0.0005)
-        variables = tf.trainable_variables()
-        l2_reg_loss = tf.add_n([tf.nn.l2_loss(var) for var in variables])
-
-        # Softmax cross-entropy loss function
-        softmax_losses = tf.nn.softmax_cross_entropy_with_logits(labels=self.y, logits=self.logits)
-        softmax_loss = tf.reduce_mean(softmax_losses)
-
-        return softmax_loss + weight_decay*l2_reg_loss

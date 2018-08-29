@@ -1,5 +1,5 @@
 # Shake-Shake regularization implementation with tensorflow
-
+This repository contains the code for the paper [Shake-Shake regularization](https://arxiv.org/pdf/1705.07485.pdf).
 *Last update : 2018/06/11*
 
 ## Contributor

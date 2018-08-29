@@ -1,4 +1,4 @@
-# Shake-Shake implementation with tensorflow
+# Shake-Shake regularization implementation with tensorflow
 
 *Last update : 2018/06/11*
 
